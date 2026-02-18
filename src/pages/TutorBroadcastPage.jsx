@@ -211,6 +211,14 @@ export default function TutorBroadcastPage() {
     }
   };
 
+  const handleClose = () => {
+    if (user && user.type === 'tutor') {
+      navigate('/tutor/dashboard');
+    } else {
+      navigate('/home');
+    }
+  };
+
   return (
     <div className="broadcast-container">
       {/* 1. Fullscreen Video Feed */}
@@ -224,7 +232,7 @@ export default function TutorBroadcastPage() {
 
       {/* 2. Top Bar (Always Visible) */}
       <div className="top-bar">
-        <button className="close-btn" onClick={() => navigate('/home')}>
+        <button className="close-btn" onClick={handleClose}>
           <X size={24} />
         </button>
         {isLive && <div className="live-tag">🔴 LIVE</div>}
