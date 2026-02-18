@@ -41,10 +41,6 @@ export default function HomePage() {
   const allLive = sharedLiveSessions.length > 0 ? sharedLiveSessions : liveSessions;
   const featuredLive = allLive.length > 0 ? allLive[0] : null;
 
-  // Prefer Firebase sessions, fall back to local context
-  const allLive = sharedLiveSessions.length > 0 ? sharedLiveSessions : liveSessions;
-  const featuredLive = allLive.length > 0 ? allLive[0] : null;
-
   return (
     <div className="page home-page">
       {/* Header */}
