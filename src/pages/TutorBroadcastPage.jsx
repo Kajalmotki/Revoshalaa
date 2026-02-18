@@ -4,9 +4,6 @@ import {
   Video, Mic, MicOff, Camera, CameraOff, X,
   MessageCircle, Users, Share2, Settings, Zap
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { auth } from '../firebase';
-import { signInAnonymously } from 'firebase/auth';
 import { auth } from '../firebase';
 import { signInAnonymously } from 'firebase/auth';
 import {
