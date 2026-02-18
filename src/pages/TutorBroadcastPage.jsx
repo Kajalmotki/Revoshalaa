@@ -212,11 +212,7 @@ export default function TutorBroadcastPage() {
   };
 
   const handleClose = () => {
-    if (user && user.type === 'tutor') {
-      navigate('/tutor/dashboard');
-    } else {
-      navigate('/home');
-    }
+    navigate('/tutor/dashboard');
   };
 
   return (
