@@ -4,6 +4,7 @@ import { onLiveSessionsChanged } from '../utils/liveSignaling';
 import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
+    signInAnonymously,
     signOut,
     onAuthStateChanged
 } from 'firebase/auth';
@@ -152,28 +153,46 @@ export const AuthProvider = ({ children }) => {
 
     // ... (rest of state)
 
-    // Listen for Auth Changes
+    // Listen for Auth Changes with Anonymous Fallback
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
             if (firebaseUser) {
-                // Fetch user profile from Firestore
-                const userDocRef = doc(db, 'users', firebaseUser.uid);
-                const userDoc = await getDoc(userDocRef);
-
-                if (userDoc.exists()) {
-                    const userData = userDoc.data();
-                    const appUser = { ...userData, id: firebaseUser.uid, email: firebaseUser.email };
-                    setUser(appUser);
-                    setOnline(appUser.id, appUser.name);
-                    localStorage.setItem('revoshalaa_user', JSON.stringify(appUser));
+                if (firebaseUser.isAnonymous) {
+                    console.log('User signed in anonymously');
+                    // We don't necessarily set "user" state for anonymous, 
+                    // or we set a limited guest user.
+                    // For now, let's keep user as null so UI shows "Login", 
+                    // but Firestore will work because auth.currentUser is set.
                 } else {
-                    // Fallback if no firestore doc (shouldn't happen with proper signup)
-                    const fallbackUser = { id: firebaseUser.uid, email: firebaseUser.email, name: 'User' };
-                    setUser(fallbackUser);
+                    // Fetch user profile from Firestore
+                    const userDocRef = doc(db, 'users', firebaseUser.uid);
+                    const userDoc = await getDoc(userDocRef);
+
+                    if (userDoc.exists()) {
+                        const userData = userDoc.data();
+                        const appUser = { ...userData, id: firebaseUser.uid, email: firebaseUser.email };
+                        setUser(appUser);
+                        setOnline(appUser.id, appUser.name);
+                        localStorage.setItem('revoshalaa_user', JSON.stringify(appUser));
+                    } else {
+                        // Fallback if no firestore doc (shouldn't happen with proper signup)
+                        const fallbackUser = { id: firebaseUser.uid, email: firebaseUser.email, name: 'User' };
+                        setUser(fallbackUser);
+                    }
                 }
             } else {
                 setUser(null);
                 localStorage.removeItem('revoshalaa_user');
+
+                // DATA ACCESS FIX: 
+                // If we are fully logged out, try to sign in anonymously 
+                // so we can read/write public data subject to rules.
+                try {
+                    console.log('No user, attempting anonymous sign-in...');
+                    await signInAnonymously(auth);
+                } catch (e) {
+                    console.error('Anonymous auth failed', e);
+                }
             }
             setLoading(false);
         });

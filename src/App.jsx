@@ -20,50 +20,6 @@ import TutorBottomNav from './components/TutorBottomNav';
 import InstallPrompt from './components/InstallPrompt';
 import { AuthProvider } from './context/AuthContext';
 
-import { debugLog } from './utils/debugLog';
-import { useState, useEffect } from 'react';
-
-function DebugConsole() {
-    const [logs, setLogs] = useState([]);
-    const [visible, setVisible] = useState(true);
-
-    useEffect(() => {
-        return debugLog.subscribe(log => {
-            setLogs(prev => [log, ...prev].slice(0, 20));
-        });
-    }, []);
-
-    if (!visible) return <button onClick={() => setVisible(true)} style={{ position: 'fixed', bottom: 10, right: 10, zIndex: 9999 }}>🐛</button>;
-
-    return (
-        <div style={{
-            position: 'fixed',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: '200px',
-            background: 'rgba(0,0,0,0.85)',
-            color: '#0f0',
-            fontFamily: 'monospace',
-            fontSize: '12px',
-            padding: '10px',
-            overflowY: 'auto',
-            zIndex: 9999,
-            pointerEvents: 'none' // Click through
-        }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', pointerEvents: 'auto' }}>
-                <strong>DEBUG CONSOLE (Share this info)</strong>
-                <button onClick={() => setVisible(false)} style={{ background: 'red', color: 'white' }}>Close</button>
-            </div>
-            {logs.map((l, i) => (
-                <div key={i} style={{ color: l.type === 'error' ? 'red' : 'inherit', borderBottom: '1px solid #333' }}>
-                    [{l.time}] {l.message}
-                </div>
-            ))}
-        </div>
-    );
-}
-
 function AppContent() {
     const location = useLocation();
 
@@ -78,7 +34,6 @@ function AppContent() {
 
     return (
         <>
-            <DebugConsole />
             <Routes>
                 {/* Auth & Splash */}
                 <Route path="/" element={<SplashScreen />} />

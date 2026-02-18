@@ -17,13 +17,11 @@ import {
 
 // ─── Session Discovery ──────────────────────────────
 
-import { debugLog } from './debugLog';
-
 // Tutor publishes a live session
 export async function publishSession(session) {
     try {
         const sessionRef = doc(db, 'live_sessions', session.id);
-        debugLog.log(`Attempting to publish session: ${session.id}`);
+        console.log('[Firestore] Publishing session:', session.id, session);
 
         await setDoc(sessionRef, {
             ...session,
@@ -41,14 +39,25 @@ export async function publishSession(session) {
             viewerCandidates: []
         });
 
-        debugLog.log('Session published successfully!');
+        console.log('[Firestore] Session published successfully!');
     } catch (err) {
-        debugLog.error(`Failed to publish session: ${err.message}`);
+        console.error('[Firestore] Failed to publish session:', err.message);
         throw err;
     }
 }
 
-// ...
+// Tutor removes a live session
+export async function removeSession(sessionId) {
+    try {
+        // We can either delete it or mark it as ended. 
+        // Deleting for cleanup.
+        await deleteDoc(doc(db, 'live_sessions', sessionId));
+        // Subcollections (signaling) technically remain in Firestore unless manually deleted, 
+        // but they won't be accessible via the main session doc.
+    } catch (err) {
+        console.error('[Firestore] Failed to remove session:', err);
+    }
+}
 
 // Real-time listener for all active live sessions
 export function onLiveSessionsChanged(callback) {
@@ -59,10 +68,10 @@ export function onLiveSessionsChanged(callback) {
         snapshot.forEach((doc) => {
             sessions.push({ id: doc.id, ...doc.data() });
         });
-        debugLog.log(`Live sessions update: Found ${sessions.length} sessions`);
+        console.log('[Firestore] Live sessions update:', sessions.length);
         callback(sessions);
     }, (error) => {
-        debugLog.error(`Error reading live-sessions: ${error.message}`);
+        console.error('[Firestore] Error reading live-sessions:', error);
         callback([]);
     });
 
