@@ -10,10 +10,15 @@ export default function RoleSelectPage() {
       <div className="role-content">
         <div className="role-logo animate-fade-in-up">
           <svg viewBox="0 0 80 80" width="70" height="70" fill="none">
-            <path d="M40 8C40 8 25 25 25 40C25 55 40 65 40 65C40 65 55 55 55 40C55 25 40 8 40 8Z" fill="white" stroke="#8BA888" strokeWidth="1.5" />
-            <path d="M40 15C40 15 18 30 15 45C12 60 40 70 40 70C40 70 68 60 65 45C62 30 40 15 40 15Z" fill="white" stroke="#8BA888" strokeWidth="1" />
-            <path d="M40 20C40 20 30 35 30 45C30 55 40 60 40 60C40 60 50 55 50 45C50 35 40 20 40 20Z" fill="rgba(139,168,136,0.4)" stroke="#8BA888" strokeWidth="1" />
-            <circle cx="40" cy="42" r="4" fill="#8BA888" />
+            {/* Central Bud */}
+            <path d="M40 10C40 10 30 30 30 45C30 55 40 65 40 65C40 65 50 55 50 45C50 30 40 10 40 10Z" fill="white" stroke="#8BA888" strokeWidth="1.5" />
+            {/* Left Petal */}
+            <path d="M30 45C22 40 10 32 10 32C10 32 12 55 32 62" fill="white" stroke="#8BA888" strokeWidth="1.5" />
+            {/* Right Petal */}
+            <path d="M50 45C58 40 70 32 70 32C70 32 68 55 48 62" fill="white" stroke="#8BA888" strokeWidth="1.5" />
+            {/* Base Leaves */}
+            <path d="M32 62C20 62 10 58 10 58C10 58 20 72 40 72" fill="white" stroke="#8BA888" strokeWidth="1.5" />
+            <path d="M48 62C60 62 70 58 70 58C70 58 60 72 40 72" fill="white" stroke="#8BA888" strokeWidth="1.5" />
           </svg>
         </div>
         <h1 className="role-title animate-fade-in-up" style={{ animationDelay: '0.1s' }}>Revoshalaa</h1>

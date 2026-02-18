@@ -5,11 +5,11 @@ import { useAuth } from '../context/AuthContext';
 
 export default function TutorLoginPage() {
   const navigate = useNavigate();
-  const { login, categories, addCategory } = useAuth();
+  const { login, signup, categories, addCategory } = useAuth();
 
   // Multi-step: 'credentials' -> 'otp' -> 'profile' -> 'category' -> 'specialty'
   const [phase, setPhase] = useState('credentials');
-  const [loginMethod, setLoginMethod] = useState('email');
+  const [isLoginMode, setIsLoginMode] = useState(false); // New state for Login vs Signup
   const [isLoading, setIsLoading] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -25,29 +25,31 @@ export default function TutorLoginPage() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [specialty, setSpecialty] = useState('');
 
-  // Step 1: Submit credentials
-  const handleCredentialsSubmit = (e) => {
+  // Step 1: Submit credentials (Login or Signup start)
+  const handleCredentialsSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.firstName.trim()) return;
+    if (!formData.identifier.trim() || !formData.password.trim()) return;
 
-    if (loginMethod === 'mobile') {
+    if (isLoginMode) {
+      // HANDLE LOGIN DIRECTLY
       setIsLoading(true);
-      setTimeout(() => {
+      try {
+        await login(formData.identifier, formData.password);
+        navigate('/tutor/dashboard');
+      } catch (error) {
+        console.error(error);
+        alert("Login failed: " + error.message);
+      } finally {
         setIsLoading(false);
-        setPhase('otp');
-        alert(`OTP sent to ${formData.identifier}: 5678`);
-      }, 1200);
+      }
     } else {
-      // Email: go to profile step directly
+      // PROCEED TO SIGNUP STEPS
+      if (!formData.firstName.trim()) return;
       setPhase('category');
     }
   };
 
-  // Step 2: Verify OTP
-  const handleOtpSubmit = (e) => {
-    e.preventDefault();
-    setPhase('category');
-  };
+  // ... (OTP handler removed or kept if needed for something else, but not for this flow) ...
 
   // Step 3: Add custom category
   const handleAddCategory = () => {
@@ -59,21 +61,27 @@ export default function TutorLoginPage() {
   };
 
   // Step 4: Final submit with specialty
-  const handleFinalSubmit = () => {
+  const handleFinalSubmit = async () => {
     if (!selectedCategory) return;
     setIsLoading(true);
 
-    setTimeout(() => {
-      login('tutor', {
+    try {
+      await signup(formData.identifier, formData.password, {
         firstName: formData.firstName,
         lastName: formData.lastName,
-        identifier: formData.identifier,
+        name: `${formData.firstName} ${formData.lastName}`.trim(),
         category: selectedCategory,
         specialty: specialty,
+        type: 'tutor',
+        avatar: '🎓'
       });
-      setIsLoading(false);
       navigate('/tutor/dashboard');
-    }, 1000);
+    } catch (error) {
+      console.error(error);
+      alert("Registration failed: " + error.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const selectedCatName = categories.find(c => c.id === selectedCategory)?.name || '';
@@ -88,99 +96,108 @@ export default function TutorLoginPage() {
             <Video size={32} color="white" />
           </div>
           <h1 className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-            {phase === 'credentials' || phase === 'otp' ? 'Tutor Access' : phase === 'category' ? 'Choose Your Category' : 'Your Specialty'}
+            {isLoginMode ? 'Welcome Back' : (phase === 'credentials' ? 'Tutor Access' : phase === 'category' ? 'Choose Your Category' : 'Your Specialty')}
           </h1>
           <p className="subtitle animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-            {phase === 'credentials' || phase === 'otp'
-              ? 'Create your profile & start teaching'
-              : phase === 'category'
-                ? 'What will you teach on Revoshalaa?'
-                : `Tell us more about your ${selectedCatName} expertise`}
+            {isLoginMode
+              ? 'Login to manage your sessions'
+              : (phase === 'credentials'
+                ? 'Create your profile & start teaching'
+                : phase === 'category'
+                  ? 'What will you teach on Revoshalaa?'
+                  : `Tell us more about your ${selectedCatName} expertise`)}
           </p>
 
-          {/* Progress dots */}
-          <div className="progress-dots">
-            <span className={`dot ${['credentials', 'otp', 'category', 'specialty'].includes(phase) ? 'active' : ''}`} />
-            <span className={`dot ${['category', 'specialty'].includes(phase) ? 'active' : ''}`} />
-            <span className={`dot ${phase === 'specialty' ? 'active' : ''}`} />
-          </div>
+          {/* Progress dots (Only show in Signup mode) */}
+          {!isLoginMode && (
+            <div className="progress-dots">
+              <span className={`dot ${['credentials', 'category', 'specialty'].includes(phase) ? 'active' : ''}`} />
+              <span className={`dot ${['category', 'specialty'].includes(phase) ? 'active' : ''}`} />
+              <span className={`dot ${phase === 'specialty' ? 'active' : ''}`} />
+            </div>
+          )}
         </div>
 
-        {/* ===== CREDENTIALS PHASE ===== */}
+        {/* ===== CREDENTIALS PHASE (Login & Signup) ===== */}
         {phase === 'credentials' && (
           <div className="login-form-container glass-card animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
-            <div className="login-method-toggle">
-              <button className={loginMethod === 'email' ? 'active' : ''} onClick={() => setLoginMethod('email')}>Email</button>
-              <button className={loginMethod === 'mobile' ? 'active' : ''} onClick={() => setLoginMethod('mobile')}>Mobile</button>
+
+            {/* Toggle Login/Signup */}
+            <div className="auth-toggle">
+              <button
+                className={`toggle-btn ${!isLoginMode ? 'active' : ''}`}
+                onClick={() => setIsLoginMode(false)}
+              >
+                Sign Up
+              </button>
+              <button
+                className={`toggle-btn ${isLoginMode ? 'active' : ''}`}
+                onClick={() => setIsLoginMode(true)}
+              >
+                Login
+              </button>
             </div>
 
             <form onSubmit={handleCredentialsSubmit}>
-              {/* Name fields */}
-              <div className="name-row">
-                <div className="input-group">
-                  <User size={18} className="input-icon" />
-                  <input
-                    type="text"
-                    placeholder="First Name"
-                    value={formData.firstName}
-                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                    required
-                  />
+              {/* Name fields - Only for Signup */}
+              {!isLoginMode && (
+                <div className="name-row animate-fade-in">
+                  <div className="input-group">
+                    <User size={18} className="input-icon" />
+                    <input
+                      type="text"
+                      placeholder="First Name"
+                      value={formData.firstName}
+                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      required={!isLoginMode}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <input
+                      type="text"
+                      placeholder="Last Name"
+                      value={formData.lastName}
+                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      style={{ paddingLeft: 16 }}
+                    />
+                  </div>
                 </div>
-                <div className="input-group">
-                  <input
-                    type="text"
-                    placeholder="Last Name"
-                    value={formData.lastName}
-                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                    style={{ paddingLeft: 16 }}
-                  />
-                </div>
-              </div>
+              )}
 
               {/* Email or Mobile */}
               <div className="input-group">
-                {loginMethod === 'email' ? <Mail size={18} className="input-icon" /> : <Phone size={18} className="input-icon" />}
+                <Mail size={18} className="input-icon" />
                 <input
-                  type={loginMethod === 'email' ? 'email' : 'tel'}
-                  placeholder={loginMethod === 'email' ? 'Email Address' : 'Mobile Number'}
+                  type="email"
+                  placeholder="Email Address"
                   value={formData.identifier}
                   onChange={(e) => setFormData({ ...formData, identifier: e.target.value })}
                   required
                 />
               </div>
 
-              <button type="submit" className="btn-gold w-full" disabled={isLoading}>
-                {isLoading ? 'Sending OTP...' : <>Continue <ChevronRight size={18} /></>}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* ===== OTP PHASE ===== */}
-        {phase === 'otp' && (
-          <div className="login-form-container glass-card animate-fade-in">
-            <form onSubmit={handleOtpSubmit}>
               <div className="input-group">
-                <MessageCircle size={18} className="input-icon" />
+                <Lock size={18} className="input-icon" />
                 <input
-                  type="text"
-                  placeholder="Enter OTP"
-                  value={formData.otp}
-                  onChange={(e) => setFormData({ ...formData, otp: e.target.value })}
+                  type="password"
+                  placeholder={isLoginMode ? "Enter Password" : "Create Password"}
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   required
+                  minLength={6}
                 />
               </div>
-              <button type="submit" className="btn-gold w-full">
-                Verify <Check size={18} />
+
+              <button type="submit" className="btn-gold w-full" disabled={isLoading}>
+                {isLoading
+                  ? (isLoginMode ? 'Logging in...' : 'Processing...')
+                  : (isLoginMode ? 'Login' : <>Continue <ChevronRight size={18} /></>)}
               </button>
             </form>
-
-            <button className="back-step" onClick={() => setPhase('credentials')}>
-              <ArrowLeft size={14} /> Back
-            </button>
           </div>
         )}
+
+        {/* ===== OTP PHASE (REMOVED) ===== */}
 
         {/* ===== CATEGORY SELECTION PHASE ===== */}
         {phase === 'category' && (
@@ -614,8 +631,30 @@ export default function TutorLoginPage() {
 
         .back-link:hover { color: #7A9B76; }
 
-        .animate-fade-in {
-          animation: fadeIn 0.4s ease;
+        .auth-toggle {
+          display: flex;
+          background: rgba(139,168,136,0.1);
+          padding: 4px;
+          border-radius: 12px;
+          margin-bottom: 20px;
+        }
+
+        .toggle-btn {
+          flex: 1;
+          padding: 10px;
+          border-radius: 10px;
+          border: none;
+          background: transparent;
+          color: #6B7280;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+
+        .toggle-btn.active {
+          background: white;
+          color: #3D5A3A;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
 
         @keyframes fadeIn {

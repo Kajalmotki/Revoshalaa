@@ -1,10 +1,28 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { auth, db } from '../firebase';
+import { onLiveSessionsChanged } from '../utils/liveSignaling';
+import {
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged
+} from 'firebase/auth';
+import {
+    doc,
+    setDoc,
+    getDoc,
+    collection,
+    query,
+    where,
+    getDocs
+} from 'firebase/firestore';
 
 const AuthContext = createContext({
     user: null,
     onlineUsers: {},
     checkOnlineStatus: () => false,
     login: () => { },
+    signup: () => { },
     logout: () => { },
     addCategory: () => { },
     startLiveSession: () => { },
@@ -63,59 +81,13 @@ export const AuthProvider = ({ children }) => {
         });
     };
 
-    // Sync online status across tabs
-    useEffect(() => {
-        const handleStorageChange = (e) => {
-            if (e.key === 'revoshalaa_online_users') {
-                try {
-                    const newValue = JSON.parse(e.newValue);
-                    if (newValue) setOnlineUsers(newValue);
-                } catch (err) {
-                    // ignore parse error
-                }
-            }
-        };
-
-        window.addEventListener('storage', handleStorageChange);
-
-        // Initial load
-        const storedOnline = localStorage.getItem('revoshalaa_online_users');
-        if (storedOnline) {
-            try {
-                setOnlineUsers(JSON.parse(storedOnline));
-            } catch (e) {
-                // ignore
-            }
-        }
-
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
-
     // Load data from localStorage on mount
     useEffect(() => {
-        const storedUser = localStorage.getItem('revoshalaa_user');
         const storedTutors = localStorage.getItem('revoshalaa_tutors');
-        const storedSessions = localStorage.getItem('revoshalaa_sessions');
         const storedCategories = localStorage.getItem('revoshalaa_categories');
 
-        if (storedUser) {
-            try {
-                const parsedUser = JSON.parse(storedUser);
-                setUser(parsedUser);
-                // Auto-set online on restore
-                if (parsedUser && parsedUser.id) {
-                    setOnline(parsedUser.id, parsedUser.name);
-                }
-            } catch (e) {
-                console.error("Failed to parse user", e);
-                localStorage.removeItem('revoshalaa_user');
-            }
-        }
         if (storedTutors) {
             try { setTutors(JSON.parse(storedTutors)); } catch (e) { localStorage.removeItem('revoshalaa_tutors'); }
-        }
-        if (storedSessions) {
-            try { setLiveSessions(JSON.parse(storedSessions)); } catch (e) { localStorage.removeItem('revoshalaa_sessions'); }
         }
 
         // Seed categories on first use, then always use localStorage
@@ -131,6 +103,35 @@ export const AuthProvider = ({ children }) => {
             setCategories(DEFAULT_CATEGORIES);
             localStorage.setItem('revoshalaa_categories', JSON.stringify(DEFAULT_CATEGORIES));
         }
+
+        // Listen for Real-time Live Sessions from Firestore
+        const unsubscribeSessions = onLiveSessionsChanged((sessions) => {
+            setLiveSessions(sessions);
+        });
+
+
+        // Online Status Sync
+        const handleStorageChange = (e) => {
+            if (e.key === 'revoshalaa_online_users') {
+                try {
+                    const newValue = JSON.parse(e.newValue);
+                    if (newValue) setOnlineUsers(newValue);
+                } catch (err) {
+                    // ignore parse error
+                }
+            }
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        const storedOnline = localStorage.getItem('revoshalaa_online_users');
+        if (storedOnline) {
+            try { setOnlineUsers(JSON.parse(storedOnline)); } catch (e) { }
+        }
+
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            unsubscribeSessions();
+        };
     }, []);
 
     // Add a new category permanently
@@ -147,48 +148,103 @@ export const AuthProvider = ({ children }) => {
         return newCat;
     };
 
-    // Login (Simulated) — enhanced for tutor with name, category, specialty
-    const login = (type, credentials) => {
-        const newUser = {
-            id: Date.now().toString(),
-            name: credentials.firstName
-                ? `${credentials.firstName} ${credentials.lastName || ''}`.trim()
-                : credentials.identifier?.split('@')[0] || 'User',
-            firstName: credentials.firstName || '',
-            lastName: credentials.lastName || '',
-            type,
-            avatar: type === 'tutor' ? '🎓' : '👤',
-            category: credentials.category || '',
-            specialty: credentials.specialty || '',
-            identifier: credentials.identifier || '',
+    // Listen for Auth Changes
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            if (firebaseUser) {
+                // Fetch user profile from Firestore
+                const userDocRef = doc(db, 'users', firebaseUser.uid);
+                const userDoc = await getDoc(userDocRef);
+
+                if (userDoc.exists()) {
+                    const userData = userDoc.data();
+                    const appUser = { ...userData, id: firebaseUser.uid, email: firebaseUser.email };
+                    setUser(appUser);
+                    setOnline(appUser.id, appUser.name);
+                    localStorage.setItem('revoshalaa_user', JSON.stringify(appUser));
+                } else {
+                    // Fallback if no firestore doc (shouldn't happen with proper signup)
+                    const fallbackUser = { id: firebaseUser.uid, email: firebaseUser.email, name: 'User' };
+                    setUser(fallbackUser);
+                }
+            } else {
+                setUser(null);
+                localStorage.removeItem('revoshalaa_user');
+            }
+        });
+
+        // Fetch Tutors from Firestore
+        const fetchTutors = async () => {
+            try {
+                const q = query(collection(db, 'users'), where('type', '==', 'tutor'));
+                const querySnapshot = await getDocs(q);
+                const tutorsList = [];
+                querySnapshot.forEach((doc) => {
+                    tutorsList.push({ id: doc.id, ...doc.data() });
+                });
+                setTutors(tutorsList);
+                localStorage.setItem('revoshalaa_tutors', JSON.stringify(tutorsList));
+            } catch (error) {
+                console.error("Error fetching tutors:", error);
+            }
         };
 
-        setUser(newUser);
-        setOnline(newUser.id, newUser.name);
-        localStorage.setItem('revoshalaa_user', JSON.stringify(newUser));
+        fetchTutors();
+        return () => unsubscribe();
+    }, []);
 
-        // Register tutor in the tutors list
-        if (type === 'tutor') {
-            const existingIdx = tutors.findIndex(t => t.identifier === newUser.identifier);
-            let updatedTutors;
-            if (existingIdx >= 0) {
-                updatedTutors = [...tutors];
-                updatedTutors[existingIdx] = newUser;
-            } else {
-                updatedTutors = [...tutors, newUser];
+    // Signup Function
+    const signup = async (email, password, profileData) => {
+        try {
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
+
+            // Create user profile in Firestore
+            const userData = {
+                ...profileData,
+                createdAt: new Date().toISOString(),
+                identifier: email // Keep for backward compatibility or display
+            };
+
+            await setDoc(doc(db, 'users', user.uid), userData);
+
+            const appUser = { id: user.uid, email, ...userData };
+            setUser(appUser);
+            setOnline(user.uid, appUser.name);
+
+            // If tutor, refresh tutors list locally or re-fetch
+            if (profileData.type === 'tutor') {
+                setTutors(prev => [...prev, appUser]);
             }
-            setTutors(updatedTutors);
-            localStorage.setItem('revoshalaa_tutors', JSON.stringify(updatedTutors));
-        }
 
-        return true;
+            return true;
+        } catch (error) {
+            console.error("Signup Error:", error);
+            throw error;
+        }
     };
 
-    // Logout
-    const logout = () => {
-        if (user) setOffline(user.id, user.name);
-        setUser(null);
-        localStorage.removeItem('revoshalaa_user');
+    // Login Function
+    const login = async (email, password) => {
+        try {
+            await signInWithEmailAndPassword(auth, email, password);
+            return true;
+        } catch (error) {
+            console.error("Login Error:", error);
+            throw error;
+        }
+    };
+
+    // Logout Function
+    const logout = async () => {
+        try {
+            if (user) setOffline(user.id, user.name);
+            await signOut(auth);
+            setUser(null);
+            localStorage.removeItem('revoshalaa_user');
+        } catch (error) {
+            console.error("Logout Error:", error);
+        }
     };
 
     // Tutor: Go Live
@@ -206,17 +262,16 @@ export const AuthProvider = ({ children }) => {
             startedAt: new Date().toISOString(),
         };
 
-        const updatedSessions = [...liveSessions, newSession];
-        setLiveSessions(updatedSessions);
-        localStorage.setItem('revoshalaa_sessions', JSON.stringify(updatedSessions));
+        // Note: We don't setLiveSessions here directly. 
+        // The TutorBroadcastPage calls publishSession(), which updates Firestore.
+        // Then our onLiveSessionsChanged listener updates the state automatically.
+
         return newSession;
     };
 
     // Tutor: End Live
     const endLiveSession = (sessionId) => {
-        const updatedSessions = liveSessions.filter(s => s.id !== sessionId);
-        setLiveSessions(updatedSessions);
-        localStorage.setItem('revoshalaa_sessions', JSON.stringify(updatedSessions));
+        // Logic handled by removeSession in liveSignaling
     };
 
     return (
@@ -228,6 +283,7 @@ export const AuthProvider = ({ children }) => {
             onlineUsers,
             checkOnlineStatus,
             login,
+            signup,
             logout,
             addCategory,
             startLiveSession,

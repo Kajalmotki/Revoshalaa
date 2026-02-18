@@ -1,102 +1,177 @@
-// Live Session Signaling via Firebase Realtime Database
+// Live Session Signaling via Cloud Firestore
 // Handles session discovery + WebRTC signaling across any network
 
-import { database } from '../firebase';
+import { db } from '../firebase';
 import {
-    ref, set, push, remove, onValue, off, get, child, onChildAdded
-} from 'firebase/database';
+    collection,
+    doc,
+    setDoc,
+    deleteDoc,
+    onSnapshot,
+    updateDoc,
+    arrayUnion,
+    query,
+    where,
+    getDoc
+} from 'firebase/firestore';
 
 // ─── Session Discovery ──────────────────────────────
 
 // Tutor publishes a live session
-export function publishSession(session) {
-    const sessionRef = ref(database, `live-sessions/${session.id}`);
-    console.log('[Firebase] Publishing session:', session.id, session);
-    return set(sessionRef, {
-        ...session,
-        startedAt: new Date().toISOString(),
-    }).then(() => {
-        console.log('[Firebase] Session published successfully!');
-    }).catch((err) => {
-        console.error('[Firebase] Failed to publish session:', err.message);
-    });
+export async function publishSession(session) {
+    try {
+        const sessionRef = doc(db, 'live_sessions', session.id);
+        console.log('[Firestore] Publishing session:', session.id, session);
+
+        await setDoc(sessionRef, {
+            ...session,
+            status: 'active',
+            startedAt: new Date().toISOString(),
+            viewers: 0
+        });
+
+        // Initialize signaling document
+        const signalingRef = doc(db, 'live_sessions', session.id, 'signaling', 'main');
+        await setDoc(signalingRef, {
+            offer: null,
+            answer: null,
+            tutorCandidates: [],
+            viewerCandidates: []
+        });
+
+        console.log('[Firestore] Session published successfully!');
+    } catch (err) {
+        console.error('[Firestore] Failed to publish session:', err.message);
+        throw err;
+    }
 }
 
 // Tutor removes a live session
-export function removeSession(sessionId) {
-    // Remove session and all signaling data
-    const sessionRef = ref(database, `live-sessions/${sessionId}`);
-    const signalingRef = ref(database, `signaling/${sessionId}`);
-    return Promise.all([remove(sessionRef), remove(signalingRef)]);
+export async function removeSession(sessionId) {
+    try {
+        // We can either delete it or mark it as ended. 
+        // Deleting for cleanup.
+        await deleteDoc(doc(db, 'live_sessions', sessionId));
+        // Subcollections (signaling) technically remain in Firestore unless manually deleted, 
+        // but they won't be accessible via the main session doc.
+    } catch (err) {
+        console.error('[Firestore] Failed to remove session:', err);
+    }
 }
 
 // Real-time listener for all active live sessions
 export function onLiveSessionsChanged(callback) {
-    const sessionsRef = ref(database, 'live-sessions');
-    const handler = onValue(
-        sessionsRef,
-        (snapshot) => {
-            const data = snapshot.val();
-            console.log('[Firebase] live-sessions data:', data);
-            const sessions = data ? Object.values(data) : [];
-            callback(sessions);
-        },
-        (error) => {
-            console.error('[Firebase] Permission error reading live-sessions:', error.message);
-            callback([]);
-        }
-    );
-    // Return unsubscribe function
-    return () => off(sessionsRef, 'value', handler);
+    const q = query(collection(db, 'live_sessions')); // Could add where('status', '==', 'active')
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const sessions = [];
+        snapshot.forEach((doc) => {
+            sessions.push({ id: doc.id, ...doc.data() });
+        });
+        console.log('[Firestore] Live sessions update:', sessions.length);
+        callback(sessions);
+    }, (error) => {
+        console.error('[Firestore] Error reading live-sessions:', error);
+        callback([]);
+    });
+
+    return unsubscribe;
 }
 
 // ─── WebRTC Signaling ────────────────────────────────
 
+// Helper to get signaling ref
+const getSigRef = (sessionId) => doc(db, 'live_sessions', sessionId, 'signaling', 'main');
+
 // Tutor sends WebRTC offer
-export function sendOffer(sessionId, offer) {
-    return set(ref(database, `signaling/${sessionId}/offer`), JSON.stringify(offer));
+export async function sendOffer(sessionId, offer) {
+    const sigRef = getSigRef(sessionId);
+    // Use JSON.stringify if needed, but Firestore can store objects directly. 
+    // Existing code expects JSON strings in some places, but let's store as objects for cleaner Firestore.
+    // However, to maintain compatibility with existing components that might expect parsing, 
+    // we should check how they consume it. 
+    // The previous implementation stored as JSON string.
+    // Let's store as OBJECT in Firestore, but verify consumption.
+    // Consumer: onSignalingChanged -> parsed.offer
+
+    // Let's store as string to be safe and consistent with previous strict JSON expectation if any
+    // OR update consumer to not parse if object.
+
+    // I'll store as JSON string to minimize risk of breaking object structure or specialized types
+    await updateDoc(sigRef, { offer: JSON.stringify(offer) });
 }
 
 // Viewer sends WebRTC answer
-export function sendAnswer(sessionId, answer) {
-    return set(ref(database, `signaling/${sessionId}/answer`), JSON.stringify(answer));
+export async function sendAnswer(sessionId, answer) {
+    const sigRef = getSigRef(sessionId);
+    await updateDoc(sigRef, { answer: JSON.stringify(answer) });
 }
 
-// Send ICE candidate (role = 'tutor' or 'viewer')
-export function sendCandidate(sessionId, role, candidate) {
-    const candidateRef = ref(database, `signaling/${sessionId}/${role}-candidates`);
-    return push(candidateRef, JSON.stringify(candidate));
+// Send ICE candidate
+export async function sendCandidate(sessionId, role, candidate) {
+    const sigRef = getSigRef(sessionId);
+    const field = role === 'tutor' ? 'tutorCandidates' : 'viewerCandidates';
+
+    await updateDoc(sigRef, {
+        [field]: arrayUnion(JSON.stringify(candidate))
+    });
 }
 
-// Listen for signaling data changes (real-time, no polling!)
+// Listen for signaling data changes
 export function onSignalingChanged(sessionId, callback) {
-    const sigRef = ref(database, `signaling/${sessionId}`);
-    const handler = onValue(sigRef, (snapshot) => {
-        const data = snapshot.val() || {};
+    const sigRef = getSigRef(sessionId);
 
-        // Parse stringified SDP/candidates
-        const parsed = {
-            offer: data.offer ? JSON.parse(data.offer) : null,
-            answer: data.answer ? JSON.parse(data.answer) : null,
-            tutorCandidates: data['tutor-candidates']
-                ? Object.values(data['tutor-candidates']).map(c => JSON.parse(c))
-                : [],
-            viewerCandidates: data['viewer-candidates']
-                ? Object.values(data['viewer-candidates']).map(c => JSON.parse(c))
-                : [],
-        };
+    const unsubscribe = onSnapshot(sigRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
 
-        callback(parsed);
+            // Map Firestore data to the expected format
+            // We stored as JSON strings, so we parse them back
+            const parsed = {
+                offer: data.offer ? JSON.parse(data.offer) : null,
+                answer: data.answer ? JSON.parse(data.answer) : null,
+                tutorCandidates: (data.tutorCandidates || []).map(c => JSON.parse(c)),
+                viewerCandidates: (data.viewerCandidates || []).map(c => JSON.parse(c)),
+            };
+
+            callback(parsed);
+        }
     });
-    return () => off(sigRef, 'value', handler);
+
+    return unsubscribe;
 }
 
-// Listen for new ICE candidates as they arrive (trickle ICE)
+// Listen for new ICE candidates (Trickle ICE)
+// Firestore doesn't have "child_added" like RTDB. 
+// We have to diff the array in `onSignalingChanged` or just let the client handle duplicates.
+// The existing `onSignalingChanged` sends the WHOLE array.
+// The existing `onNewCandidates` was for `child_added`.
+// A simple shim is to just ignore this for Firestore and rely on full sync in onSignalingChanged, 
+// OR implement a diffing logic here.
+// But `LiveSessionPage` uses `onNewCandidates`.
+// Let's implement `onNewCandidates` by listening to the doc and firing only for new items.
 export function onNewCandidates(sessionId, role, callback) {
-    const candRef = ref(database, `signaling/${sessionId}/${role}-candidates`);
-    const handler = onChildAdded(candRef, (snapshot) => {
-        const candidate = JSON.parse(snapshot.val());
-        callback(candidate);
+    const sigRef = getSigRef(sessionId);
+    const field = role === 'tutor' ? 'tutorCandidates' : 'viewerCandidates';
+    let knownCount = 0;
+
+    const unsubscribe = onSnapshot(sigRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            const candidates = data[field] || [];
+
+            if (candidates.length > knownCount) {
+                // New candidates added
+                const newItems = candidates.slice(knownCount);
+                newItems.forEach(c => {
+                    try {
+                        callback(JSON.parse(c));
+                    } catch (e) { }
+                });
+                knownCount = candidates.length;
+            }
+        }
     });
-    return () => off(candRef, 'child_added', handler);
+
+    return unsubscribe;
 }
