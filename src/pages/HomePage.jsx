@@ -41,8 +41,19 @@ export default function HomePage() {
   const allLive = sharedLiveSessions.length > 0 ? sharedLiveSessions : liveSessions;
   const featuredLive = allLive.length > 0 ? allLive[0] : null;
 
+  // DEBUG: Log session count
+  useEffect(() => {
+    console.log("Current sharedLiveSessions:", sharedLiveSessions);
+    console.log("Current allLive:", allLive);
+  }, [sharedLiveSessions, allLive]);
+
   return (
     <div className="page home-page">
+      {/* DEBUG BANNER - Remove after fixing */}
+      <div style={{ background: 'red', color: 'white', padding: '10px', fontSize: '12px', wordBreak: 'break-all' }}>
+        DEBUG: Found {sharedLiveSessions.length} live sessions in Firestore.
+        Raw: {JSON.stringify(sharedLiveSessions.map(s => s.tutorName))}
+      </div>
       {/* Header */}
       <div className="home-header">
         <div>
