@@ -125,8 +125,53 @@ export default function TutorBroadcastPage() {
         viewers: 0
       });
 
-      // Initialize WebRTC (Simplified for now)
-      // ... (WebRTC logic would go here, identical to previous implementation)
+      // Initialize WebRTC
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ]
+      });
+      peerRef.current = pc;
+
+      // Add local stream tracks
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => {
+          pc.addTrack(track, streamRef.current);
+        });
+      }
+
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendCandidate(newSession.id, 'tutor', event.candidate);
+        }
+      };
+
+      // Create Offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // Publish Offer to Firestore
+      await sendOffer(newSession.id, offer);
+
+      // Listen for Remote Answer
+      onSignalingChanged(newSession.id, async (data) => {
+        if (data.answer && !pc.currentRemoteDescription) {
+          console.log("Received Answer from Viewer");
+          const rtcAnswer = new RTCSessionDescription(data.answer);
+          await pc.setRemoteDescription(rtcAnswer);
+        }
+      });
+
+      // Listen for Viewer Candidates
+      onNewCandidates(newSession.id, 'viewer', async (candidate) => {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.error("Error adding viewer candidate:", e);
+        }
+      });
 
     } catch (e) {
       console.error("Go Live Error:", e);
