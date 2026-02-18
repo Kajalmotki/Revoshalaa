@@ -7,6 +7,8 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../firebase';
 import { signInAnonymously } from 'firebase/auth';
+import { auth } from '../firebase';
+import { signInAnonymously } from 'firebase/auth';
 import {
   publishSession, removeSession, sendOffer, sendCandidate,
   onSignalingChanged, onNewCandidates
@@ -95,11 +97,22 @@ export default function TutorBroadcastPage() {
     // B. Start Session
     try {
       // 1. Show Loading State (Instagram style spinner)
-      // We can use a local 'isPublishing' state if we want, or just rely on async flow
       const confirmBtn = document.querySelector('.go-live-hero-btn');
       if (confirmBtn) {
         confirmBtn.innerHTML = 'Connecting...';
         confirmBtn.disabled = true;
+      }
+
+      // 1b. CRITICAL: Ensure Auth exists (Anonymous or Real)
+      // If we are a guest, we MUST be signed in to Firebase to write data
+      if (!auth.currentUser) {
+        console.log("No auth user found, forcing anonymous sign-in...");
+        try {
+          await signInAnonymously(auth);
+        } catch (authErr) {
+          console.error("Auth failed:", authErr);
+          throw new Error("Could not sign in active guest. Check internet.");
+        }
       }
 
       // Create Session Object
@@ -110,7 +123,6 @@ export default function TutorBroadcastPage() {
       };
 
       // We explicitly construct the session object here to allow Guests
-      // (Bypassing startLiveSession auth check)
       const newSession = {
         id: Date.now().toString(),
         tutorId: activeUser.id,
@@ -122,16 +134,26 @@ export default function TutorBroadcastPage() {
         startedAt: new Date().toISOString(),
       };
 
-      // 2. Publish to Firestore (CRITICAL: Wait for this!)
+      // 2. Publish to Firestore with TIMEOUT
       console.log("Publishing session to Firestore...", newSession.id);
-      await publishSession({
-        id: newSession.id,
-        title: newSession.title,
-        tutorName: newSession.tutorName,
-        tutorId: newSession.tutorId,
-        category: categories.find(c => c.id === category)?.name || category,
-        viewers: 0
-      });
+
+      // Create a timeout promise to fail gracefully if offline
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Request timed out. Internet is slow or blocked.")), 10000)
+      );
+
+      // Race Firestore against timeout
+      await Promise.race([
+        publishSession({
+          id: newSession.id,
+          title: newSession.title,
+          tutorName: newSession.tutorName,
+          tutorId: newSession.tutorId,
+          category: categories.find(c => c.id === category)?.name || category,
+          viewers: 0
+        }),
+        timeout
+      ]);
       console.log("Session published successfully!");
 
       // 3. Initialize WebRTC
