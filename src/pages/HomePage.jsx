@@ -1,384 +1,283 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Sparkles, Clock, Users, Calendar } from 'lucide-react';
+import { Play, Wifi, Users, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { onLiveSessionsChanged } from '../utils/liveSignaling';
 
-// Gradient pool for assigning colors to categories
-const gradientPool = [
-  'linear-gradient(135deg, #A8C4A5 0%, #8BA888 100%)',
-  'linear-gradient(135deg, #9B8EC4 0%, #7B6FA4 100%)',
-  'linear-gradient(135deg, #D9A87C 0%, #C68B59 100%)',
-  'linear-gradient(135deg, #C4857A 0%, #B06B5E 100%)',
-  'linear-gradient(135deg, #6B8FAD 0%, #537A96 100%)',
-  'linear-gradient(135deg, #BCA9D4 0%, #A08CC0 100%)',
-  'linear-gradient(135deg, #7ABFB0 0%, #5CA69A 100%)',
-  'linear-gradient(135deg, #D4A853 0%, #B88F3A 100%)',
-];
-
 export default function HomePage() {
   const navigate = useNavigate();
-  const { user, liveSessions, categories: authCategories } = useAuth();
+  const { user } = useAuth();
+  const [activeSessions, setActiveSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Build display categories from dynamic context
-  const categories = (authCategories || []).map((cat, i) => ({
-    ...cat,
-    sessions: 15 + (cat.name.length * 3 % 20),
-    gradient: gradientPool[i % gradientPool.length],
-  }));
-
-  // Listen to Firebase for live sessions (real-time, works across networks!)
-  const [sharedLiveSessions, setSharedLiveSessions] = useState([]);
-
+  // 1. Listen for Real-Time Live Sessions
   useEffect(() => {
+    setLoading(true);
     const unsub = onLiveSessionsChanged((sessions) => {
-      setSharedLiveSessions(sessions);
+      console.log("HomePage received sessions:", sessions);
+      setActiveSessions(sessions);
+      setLoading(false);
     });
     return () => unsub();
   }, []);
 
-  // Prefer Firebase sessions, fall back to local context
-  const allLive = sharedLiveSessions.length > 0 ? sharedLiveSessions : liveSessions;
-  const featuredLive = allLive.length > 0 ? allLive[0] : null;
+  // 2. Refresh Handler
+  const handleRefresh = () => {
+    setLoading(true);
+    // The listener stays active, but we can simulate a 'check' or simply re-mount slightly
+    // For now, just a visual spinner timeout if data doesn't change immediately
+    setTimeout(() => setLoading(false), 800);
+  };
 
   return (
-    <div className="page home-page">
-      {/* Header */}
-      <div className="home-header">
+    <div className="page home-page-v2">
+      {/* 1. Header */}
+      <header className="simple-header">
         <div>
-          <p className="greeting">Hey, {user?.name || 'Guest'} 👋</p>
-          <h1>Revoshalaa</h1>
+          <h1 className="brand-title">Revoshalaa</h1>
+          <p className="user-greeting">Welcome, {user?.name || 'Guest'}</p>
         </div>
-        <div className="header-actions">
-          <button className="search-btn" onClick={() => navigate('/explore')}>
-            <Sparkles size={20} />
-          </button>
+        <button onClick={handleRefresh} className={`refresh-btn ${loading ? 'spinning' : ''}`}>
+          <RefreshCw size={20} />
+        </button>
+      </header>
+
+      {/* 2. Main Content - LIVE FEED */}
+      <main className="live-feed">
+        <div className="feed-header">
+          <h2>🔴 Live Now</h2>
+          <span className="live-count">{activeSessions.length} active</span>
         </div>
-      </div>
 
-      <div className="page-content">
-
-        {/* Live Now Banner (Dynamic) */}
-        {featuredLive ? (
-          <div className="live-banner glass-card" onClick={() => navigate('/live-session', { state: featuredLive })}>
-            <div className="live-banner-badge">
-              <span className="badge badge-live">● LIVE</span>
-              <span className="viewer-count"><Users size={12} /> {featuredLive.viewers + 12}</span>
+        {activeSessions.length === 0 ? (
+          // EMPTY STATE
+          <div className="empty-state">
+            <div className="pulse-circle">
+              <Wifi size={32} />
             </div>
-            <div className="live-banner-info">
-              <h3>{featuredLive.title}</h3>
-              <p>{featuredLive.tutorName} · {featuredLive.category}</p>
-            </div>
-            <button className="btn-primary live-join-btn">
-              <Play size={16} fill="white" /> Join
-            </button>
+            <h3>Waiting for Tutors...</h3>
+            <p>No live sessions detected right now.</p>
+            <p className="hint">Tutors, please check your "Go Live" dashboard.</p>
+            {loading && <p className="loading-text">Scanning...</p>}
           </div>
         ) : (
-          <div className="no-live-banner glass-card">
-            <div className="icon-circle">
-              <Calendar size={24} color="var(--text-secondary)" />
-            </div>
-            <div className="no-live-info">
-              <h3>No live sessions right now</h3>
-              <p>Check the schedule for upcoming classes</p>
-            </div>
-            <button className="btn-outline" onClick={() => navigate('/schedule')}>
-              View Schedule
-            </button>
-          </div>
-        )}
-
-        {/* Categories */}
-        <section className="home-section" style={{ marginTop: 24 }}>
-          <div className="section-header">
-            <h2>Categories</h2>
-          </div>
-          <div className="categories-grid">
-            {categories.map((cat) => (
+          // LIST OF SESSIONS
+          <div className="sessions-grid">
+            {activeSessions.map((session) => (
               <div
-                key={cat.id}
-                className="category-big-card"
-                style={{ background: cat.gradient }}
-                onClick={() => navigate(`/category/${cat.id}`)}
+                key={session.id}
+                className="live-card-v2"
+                onClick={() => navigate('/live-session', { state: session })}
               >
-                <span className="cat-emoji">{cat.emoji}</span>
-                <h3>{cat.name}</h3>
-                <p>{cat.sessions} sessions</p>
+                {/* Thumbnail / Placeholder */}
+                <div className="card-media">
+                  <div className="live-badge">LIVE</div>
+                  <div className="viewer-pill">
+                    <Users size={12} /> {session.viewers || 0} watching
+                  </div>
+                  <div className="play-overlay">
+                    <Play fill="white" size={32} />
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="card-info">
+                  <h3>{session.title || 'Untitled Session'}</h3>
+                  <div className="tutor-info">
+                    <span className="tutor-avatar">{session.tutorAvatar || '🎓'}</span>
+                    <span className="tutor-name">{session.tutorName || 'Unknown Tutor'}</span>
+                  </div>
+                  <span className="category-tag">{session.category}</span>
+                </div>
               </div>
             ))}
           </div>
-        </section>
+        )}
+      </main>
 
-        {/* Upcoming Sessions (Static for now, could be dynamic later) */}
-        <section className="home-section">
-          <div className="section-header">
-            <h2>Upcoming Live</h2>
-            <button className="see-all" onClick={() => navigate('/schedule')}>See All</button>
-          </div>
-          <div className="h-scroll" style={{ paddingLeft: 0 }}>
-            <div className="session-card glass-card" onClick={() => navigate('/schedule')}>
-              <div className="session-card-top">
-                <span className="badge badge-free">FREE</span>
-                <span className="session-cat">Fitness</span>
-              </div>
-              <h3>HIIT Burn Challenge</h3>
-              <p className="session-instructor">Ankit Verma</p>
-              <div className="session-time">
-                <Clock size={13} />
-                <span>Today, 6:00 PM</span>
-              </div>
-            </div>
-            <div className="session-card glass-card" onClick={() => navigate('/schedule')}>
-              <div className="session-card-top">
-                <span className="badge badge-paid">$5</span>
-                <span className="session-cat">Music</span>
-              </div>
-              <h3>Guitar for Beginners</h3>
-              <p className="session-instructor">Rohan Mehta</p>
-              <div className="session-time">
-                <Clock size={13} />
-                <span>Today, 8:00 PM</span>
-              </div>
-            </div>
-            <div className="session-card glass-card" onClick={() => navigate('/schedule')}>
-              <div className="session-card-top">
-                <span className="badge badge-free">FREE</span>
-                <span className="session-cat">Cooking</span>
-              </div>
-              <h3>5-Min Healthy Meals</h3>
-              <p className="session-instructor">Chef Ananya</p>
-              <div className="session-time">
-                <Clock size={13} />
-                <span>Tomorrow, 12:00 PM</span>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-
+      {/* 3. Styles */}
       <style>{`
-        .home-page {
-          background: var(--bg-primary);
+        .home-page-v2 {
+            min-height: 100vh;
+            background: #0f0f13; /* Dark Premium BG */
+            color: white;
+            padding-bottom: 80px; /* Space for bottom nav */
         }
 
-        .home-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 20px 16px 8px;
-          padding-top: calc(var(--safe-area-top) + 20px);
+        .simple-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            padding-top: max(20px, env(safe-area-inset-top));
+            background: linear-gradient(180deg, rgba(0,0,0,0.8), transparent);
         }
 
-        .greeting {
-          font-size: 14px;
-          color: var(--text-secondary);
-          margin-bottom: 2px;
+        .brand-title {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(45deg, #FFD700, #FFA500);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
         }
 
-        .home-header h1 {
-          font-size: 26px;
-          font-family: var(--font-display);
+        .user-greeting {
+            font-size: 14px;
+            color: #ccc;
+            margin: 0;
         }
 
-        .search-btn {
-          width: 42px;
-          height: 42px;
-          border-radius: 50%;
-          background: var(--bg-card);
-          border: 1px solid var(--border-light);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--accent-sage);
-          box-shadow: var(--shadow-sm);
+        .refresh-btn {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        .refresh-btn:active { transform: scale(0.9); }
+        .spinning { animation: spin 1s linear infinite; }
+
+        .live-feed {
+            padding: 20px;
         }
 
-        /* Live Banner */
-        .live-banner {
-          padding: 18px;
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          cursor: pointer;
-          position: relative;
-          overflow: hidden;
-          background: linear-gradient(135deg, rgba(139,168,136,0.08), rgba(198,139,89,0.06)) !important;
+        .feed-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
         }
 
-        .live-banner::before {
-          content: '';
-          position: absolute;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: linear-gradient(90deg, transparent 0%, rgba(139,168,136,0.05) 50%, transparent 100%);
-          animation: shimmer 3s infinite;
-          background-size: 200% 100%;
+        .feed-header h2 {
+            font-size: 20px;
+            margin: 0;
         }
 
-        .live-banner-badge {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 6px;
+        .live-count {
+            background: #333;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            color: #888;
         }
 
-        .viewer-count {
-          font-size: 11px;
-          color: var(--text-secondary);
-          display: flex;
-          align-items: center;
-          gap: 3px;
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            text-align: center;
+            opacity: 0.7;
+        }
+        .pulse-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        .empty-state h3 { margin: 0 0 8px 0; color: white; }
+        .empty-state p { margin: 0; color: #888; font-size: 14px; }
+        .empty-state .hint { font-size: 12px; color: #555; margin-top: 12px; }
+
+        /* Sessions Grid */
+        .sessions-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
         }
 
-        .live-banner-info {
-          flex: 1;
+        .live-card-v2 {
+            background: #1e1e24;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+        .live-card-v2:active { transform: scale(0.98); }
+
+        .card-media {
+            height: 180px;
+            background: linear-gradient(45deg, #2a2a35, #3a3a45);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .live-banner-info h3 {
-          font-size: 15px;
-          font-family: var(--font-body);
-          font-weight: 600;
-          margin-bottom: 2px;
+        .live-badge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: #ff0000;
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(255,0,0,0.4);
         }
 
-        .live-banner-info p {
-          font-size: 12px;
-          color: var(--text-secondary);
+        .viewer-pill {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
 
-        .live-join-btn {
-          padding: 10px 20px;
-          font-size: 13px;
+        .card-info {
+            padding: 16px;
         }
 
-        /* No Live State */
-        .no-live-banner {
-          padding: 20px;
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          background: rgba(255,255,255,0.4);
+        .card-info h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            line-height: 1.4;
         }
 
-        .icon-circle {
-          width: 48px; 
-          height: 48px;
-          border-radius: 50%;
-          background: rgba(0,0,0,0.03);
-          display: flex;
-          align-items: center;
-          justify-content: center;
+        .tutor-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .tutor-avatar { font-size: 18px; }
+        .tutor-name { color: #aaa; font-size: 14px; }
+        
+        .category-tag {
+            display: inline-block;
+            background: rgba(255,255,255,0.1);
+            color: #ddd;
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 4px;
         }
 
-        .no-live-info {
-          flex: 1;
-        }
-
-        .no-live-info h3 {
-          font-size: 15px;
-          font-weight: 600;
-          margin-bottom: 2px;
-          color: var(--text-primary);
-        }
-
-        .no-live-info p {
-          font-size: 12px;
-          color: var(--text-secondary);
-        }
-
-        .btn-outline {
-          padding: 8px 16px;
-          border: 1px solid var(--border-medium);
-          background: transparent;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: 500;
-          color: var(--text-secondary);
-        }
-
-        /* Categories Grid */
-        .categories-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 14px;
-        }
-
-        .category-big-card {
-          padding: 28px 18px;
-          border-radius: var(--radius-lg);
-          color: white;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .category-big-card:active {
-          transform: scale(0.97);
-        }
-
-        .cat-emoji {
-          font-size: 32px;
-          display: block;
-          margin-bottom: 12px;
-        }
-
-        .category-big-card h3 {
-          color: white;
-          font-family: var(--font-display);
-          font-size: 20px;
-          margin-bottom: 4px;
-        }
-
-        .category-big-card p {
-          font-size: 12px;
-          opacity: 0.85;
-        }
-
-        /* Session Cards */
-        .session-card {
-          width: 220px;
-          padding: 16px;
-          cursor: pointer;
-        }
-
-        .session-card-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 10px;
-        }
-
-        .session-cat {
-          font-size: 11px;
-          color: var(--text-tertiary);
-          font-weight: 500;
-        }
-
-        .session-card h3 {
-          font-size: 15px;
-          font-family: var(--font-body);
-          font-weight: 600;
-          margin-bottom: 4px;
-          line-height: 1.3;
-        }
-
-        .session-instructor {
-          font-size: 12px;
-          color: var(--text-secondary);
-          margin-bottom: 10px;
-        }
-
-        .session-time {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 12px;
-          color: var(--accent-sage);
-          font-weight: 500;
-        }
-
-        .home-section {
-          margin-top: 28px;
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes pulse { 
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+            100% { transform: scale(0.95); opacity: 0.5; }
         }
       `}</style>
     </div>
