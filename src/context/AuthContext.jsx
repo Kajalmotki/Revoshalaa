@@ -148,6 +148,10 @@ export const AuthProvider = ({ children }) => {
         return newCat;
     };
 
+    const [loading, setLoading] = useState(true);
+
+    // ... (rest of state)
+
     // Listen for Auth Changes
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -171,6 +175,7 @@ export const AuthProvider = ({ children }) => {
                 setUser(null);
                 localStorage.removeItem('revoshalaa_user');
             }
+            setLoading(false);
         });
 
         // Fetch Tutors from Firestore
@@ -269,6 +274,38 @@ export const AuthProvider = ({ children }) => {
         return newSession;
     };
 
+    // Upgrade existing user to Tutor
+    const upgradeToTutor = async (category, specialty) => {
+        if (!user) return;
+        try {
+            const updates = {
+                type: 'tutor',
+                category,
+                specialty,
+                avatar: user.avatar || '🎓' // Keep existing avatar if present
+            };
+
+            // Update Firestore
+            await setDoc(doc(db, 'users', user.id), updates, { merge: true });
+
+            // Update Local State
+            const updatedUser = { ...user, ...updates };
+            setUser(updatedUser);
+            localStorage.setItem('revoshalaa_user', JSON.stringify(updatedUser));
+
+            // Add to tutors list
+            setTutors(prev => {
+                if (prev.find(t => t.id === user.id)) return prev;
+                return [...prev, updatedUser];
+            });
+
+            return true;
+        } catch (error) {
+            console.error("Error upgrading to tutor:", error);
+            throw error;
+        }
+    };
+
     // Tutor: End Live
     const endLiveSession = (sessionId) => {
         // Logic handled by removeSession in liveSignaling
@@ -287,7 +324,9 @@ export const AuthProvider = ({ children }) => {
             logout,
             addCategory,
             startLiveSession,
-            endLiveSession
+            endLiveSession,
+            upgradeToTutor,
+            loading
         }}>
             {children}
         </AuthContext.Provider>
