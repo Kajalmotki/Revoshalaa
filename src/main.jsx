@@ -19,6 +19,9 @@ function ErrorFallback({ error, resetErrorBoundary }) {
     );
 }
 
+// Version check for deployment
+console.log('Revoshalaa v1.1 - Firebase + Netlify Live');
+
 ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
         <ErrorBoundary FallbackComponent={ErrorFallback}>
