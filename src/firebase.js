@@ -6,13 +6,14 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
-    apiKey: "AIzaSyDEXAMPLE-replace-with-your-key",
+    apiKey: "AIzaSyABs3PiELekAtgC2gqMA_bMBN-nSr68wzQ",
     authDomain: "revoshalaa.firebaseapp.com",
-    databaseURL: "https://revoshalaa-default-rtdb.firebaseio.com",
+    databaseURL: "https://revoshalaa-default-rtdb.asia-southeast1.firebasedatabase.app",
     projectId: "revoshalaa",
-    storageBucket: "revoshalaa.appspot.com",
-    messagingSenderId: "123456789",
-    appId: "1:123456789:web:abcdef123456"
+    storageBucket: "revoshalaa.firebasestorage.app",
+    messagingSenderId: "822194885874",
+    appId: "1:822194885874:web:b611a7396f33a256a42c6b",
+    measurementId: "G-M81CEC0RHX"
 };
 
 const app = initializeApp(firebaseConfig);
