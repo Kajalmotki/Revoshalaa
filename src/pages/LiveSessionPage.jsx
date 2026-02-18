@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Users, Heart, Flame, Send, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  sendAnswer, sendCandidate, onSignalingChanged, onNewCandidates
+} from '../utils/liveSignaling';
 
 const mockMessages = [
   { id: 1, user: 'Ananya R.', msg: 'Namaste everyone! 🙏', time: '2m ago' },
@@ -36,79 +39,68 @@ export default function LiveSessionPage() {
   const videoRef = useRef(null);
   const peerRef = useRef(null);
 
-  // WebRTC: Connect to tutor's stream
+  // WebRTC: Connect to tutor's stream via Firebase
   useEffect(() => {
     const sessionId = sessionInfo.id;
     if (!sessionId) return;
 
-    let cancelled = false;
-    let pollInterval;
+    let unsubSignaling;
+    let unsubCandidates;
 
-    async function connectToStream() {
-      // Poll until the tutor's offer is available
-      pollInterval = setInterval(async () => {
-        if (cancelled) return;
-        try {
-          const res = await fetch(`/api/signal/get/${sessionId}`);
-          const data = await res.json();
+    // Listen for the tutor's offer in real-time
+    unsubSignaling = onSignalingChanged(sessionId, async (data) => {
+      if (data.offer && !peerRef.current) {
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+          ]
+        });
+        peerRef.current = pc;
 
-          if (data.offer && !peerRef.current) {
-            clearInterval(pollInterval);
-
-            const pc = new RTCPeerConnection({
-              iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-            });
-            peerRef.current = pc;
-
-            // When we receive the tutor's video track
-            pc.ontrack = (event) => {
-              console.log('[WebRTC] Received tutor stream!');
-              if (videoRef.current) {
-                videoRef.current.srcObject = event.streams[0];
-                setConnected(true);
-              }
-            };
-
-            // Send our ICE candidates
-            pc.onicecandidate = (e) => {
-              if (e.candidate) {
-                fetch('/api/signal/viewer-candidate', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ sessionId, candidate: e.candidate }),
-                }).catch(() => { });
-              }
-            };
-
-            // Set the tutor's offer and create our answer
-            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-
-            // Add tutor's ICE candidates
-            for (const c of data.tutorCandidates) {
-              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => { });
-            }
-
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-
-            // Send our answer to the server
-            await fetch('/api/signal/answer', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ sessionId, answer: pc.localDescription }),
-            });
-
-            console.log('[WebRTC] Answer sent, connecting...');
+        // When we receive the tutor's video track
+        pc.ontrack = (event) => {
+          console.log('[WebRTC] Received tutor stream!');
+          if (videoRef.current) {
+            videoRef.current.srcObject = event.streams[0];
+            setConnected(true);
           }
-        } catch (e) { }
-      }, 1000);
-    }
+        };
 
-    connectToStream();
+        // Send our ICE candidates to Firebase
+        pc.onicecandidate = (e) => {
+          if (e.candidate) {
+            sendCandidate(sessionId, 'viewer', e.candidate).catch(() => { });
+          }
+        };
+
+        // Set the tutor's offer
+        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+        // Add existing tutor ICE candidates
+        for (const c of data.tutorCandidates) {
+          await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => { });
+        }
+
+        // Listen for new tutor ICE candidates
+        unsubCandidates = onNewCandidates(sessionId, 'tutor', async (candidate) => {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) { }
+        });
+
+        // Create and send our answer
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await sendAnswer(sessionId, pc.localDescription);
+
+        console.log('[WebRTC] Answer sent via Firebase');
+      }
+    });
 
     return () => {
-      cancelled = true;
-      if (pollInterval) clearInterval(pollInterval);
+      if (unsubSignaling) unsubSignaling();
+      if (unsubCandidates) unsubCandidates();
       if (peerRef.current) {
         peerRef.current.close();
         peerRef.current = null;

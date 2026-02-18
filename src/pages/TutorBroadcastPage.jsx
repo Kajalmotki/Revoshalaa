@@ -5,6 +5,10 @@ import {
   Users, Share2, Clock, DollarSign, Tag, FileText, ChevronRight, User, Star
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import {
+  publishSession, removeSession, sendOffer, sendCandidate,
+  onSignalingChanged, onNewCandidates
+} from '../utils/liveSignaling';
 
 export default function TutorBroadcastPage() {
   const navigate = useNavigate();
@@ -30,7 +34,7 @@ export default function TutorBroadcastPage() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const peerRef = useRef(null);
-  const pollRef = useRef(null);
+  const unsubRef = useRef(null);
 
   // Pre-fill from tutor onboarding data
   useEffect(() => {
@@ -60,70 +64,67 @@ export default function TutorBroadcastPage() {
     };
   }, [camOn]);
 
-  // WebRTC: Create offer and poll for answer when live
+  // WebRTC: Create offer and listen for answer via Firebase
   useEffect(() => {
     if (!isLive || !sessionId || !streamRef.current) return;
 
+    let unsubSignaling;
+    let unsubCandidates;
+
     async function setupWebRTC() {
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ]
       });
       peerRef.current = pc;
 
-      // Add camera tracks to the connection
+      // Add camera tracks
       streamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, streamRef.current);
       });
 
-      // Send ICE candidates to server
+      // Send ICE candidates to Firebase
       pc.onicecandidate = (e) => {
         if (e.candidate) {
-          fetch('/api/signal/tutor-candidate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId, candidate: e.candidate }),
-          }).catch(() => { });
+          sendCandidate(sessionId, 'tutor', e.candidate).catch(() => { });
         }
       };
 
       // Create and send offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      await sendOffer(sessionId, pc.localDescription);
+      console.log('[WebRTC] Offer sent via Firebase');
 
-      await fetch('/api/signal/offer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, offer: pc.localDescription }),
+      // Listen for viewer answer (real-time, no polling!)
+      let answered = false;
+      unsubSignaling = onSignalingChanged(sessionId, async (data) => {
+        if (data.answer && !answered) {
+          answered = true;
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            console.log('[WebRTC] Answer received from Firebase');
+          } catch (e) {
+            console.error('[WebRTC] Error setting answer:', e);
+          }
+        }
       });
 
-      console.log('[WebRTC] Offer sent, waiting for viewer...');
-
-      // Poll for viewer answer
-      let answered = false;
-      pollRef.current = setInterval(async () => {
-        if (answered) return;
+      // Listen for new viewer ICE candidates
+      unsubCandidates = onNewCandidates(sessionId, 'viewer', async (candidate) => {
         try {
-          const res = await fetch(`/api/signal/get/${sessionId}`);
-          const data = await res.json();
-
-          if (data.answer && !answered) {
-            answered = true;
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-            console.log('[WebRTC] Answer received, connection establishing...');
-
-            // Add viewer ICE candidates
-            for (const c of data.viewerCandidates) {
-              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => { });
-            }
-          }
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (e) { }
-      }, 1000);
+      });
     }
 
     setupWebRTC();
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (unsubSignaling) unsubSignaling();
+      if (unsubCandidates) unsubCandidates();
       if (peerRef.current) {
         peerRef.current.close();
         peerRef.current = null;
@@ -172,28 +173,24 @@ export default function TutorBroadcastPage() {
     setIsLive(true);
     setElapsed(0);
 
-    // Notify shared server so other devices can see this session
+    // Publish to Firebase so all devices can discover this session
     try {
-      await fetch('/api/go-live', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: session.id,
-          title: sessionDetails.title,
-          tutorName: user?.name || 'Creator',
-          tutorId: user?.id,
-          category: categories?.find(c => c.id === sessionDetails.category)?.name || sessionDetails.category,
-        }),
+      await publishSession({
+        id: session.id,
+        title: sessionDetails.title,
+        tutorName: user?.name || 'Creator',
+        tutorId: user?.id,
+        category: categories?.find(c => c.id === sessionDetails.category)?.name || sessionDetails.category,
+        viewers: 0,
       });
     } catch (e) {
-      console.error('Failed to register live session:', e);
+      console.error('Failed to publish session:', e);
     }
   };
 
   const handleEndLive = async () => {
     if (confirm('Are you sure you want to end the live session?')) {
       // Cleanup WebRTC
-      if (pollRef.current) clearInterval(pollRef.current);
       if (peerRef.current) {
         peerRef.current.close();
         peerRef.current = null;
@@ -202,15 +199,11 @@ export default function TutorBroadcastPage() {
       endLiveSession(sessionId);
       setIsLive(false);
 
-      // Notify shared server
+      // Remove from Firebase
       try {
-        await fetch('/api/end-live', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: sessionId }),
-        });
+        await removeSession(sessionId);
       } catch (e) {
-        console.error('Failed to end live session on server:', e);
+        console.error('Failed to remove session:', e);
       }
 
       navigate('/tutor/dashboard');

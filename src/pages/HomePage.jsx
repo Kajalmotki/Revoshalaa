@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play, Sparkles, Clock, Users, Calendar } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { onLiveSessionsChanged } from '../utils/liveSignaling';
 
 // Gradient pool for assigning colors to categories
 const gradientPool = [
@@ -26,25 +27,17 @@ export default function HomePage() {
     gradient: gradientPool[i % gradientPool.length],
   }));
 
-  // Poll shared API for live sessions (works across devices)
+  // Listen to Firebase for live sessions (real-time, works across networks!)
   const [sharedLiveSessions, setSharedLiveSessions] = useState([]);
 
   useEffect(() => {
-    const fetchLive = async () => {
-      try {
-        const res = await fetch('/api/live-sessions');
-        const data = await res.json();
-        setSharedLiveSessions(data);
-      } catch (e) {
-        // API not available, fall back to local
-      }
-    };
-    fetchLive();
-    const interval = setInterval(fetchLive, 3000);
-    return () => clearInterval(interval);
+    const unsub = onLiveSessionsChanged((sessions) => {
+      setSharedLiveSessions(sessions);
+    });
+    return () => unsub();
   }, []);
 
-  // Prefer shared API sessions, fall back to local context
+  // Prefer Firebase sessions, fall back to local context
   const allLive = sharedLiveSessions.length > 0 ? sharedLiveSessions : liveSessions;
   const featuredLive = allLive.length > 0 ? allLive[0] : null;
 
