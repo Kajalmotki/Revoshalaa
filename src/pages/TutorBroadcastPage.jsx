@@ -92,8 +92,13 @@ export default function TutorBroadcastPage() {
 
     // B. Start Session
     try {
-      setShowSetup(false);
-      setIsLive(true);
+      // 1. Show Loading State (Instagram style spinner)
+      // We can use a local 'isPublishing' state if we want, or just rely on async flow
+      const confirmBtn = document.querySelector('.go-live-hero-btn');
+      if (confirmBtn) {
+        confirmBtn.innerHTML = 'Connecting...';
+        confirmBtn.disabled = true;
+      }
 
       // Create Session Object
       const sessionData = {
@@ -115,7 +120,8 @@ export default function TutorBroadcastPage() {
         startedAt: new Date().toISOString(),
       };
 
-      // Publish to Firestore
+      // 2. Publish to Firestore (CRITICAL: Wait for this!)
+      console.log("Publishing session to Firestore...", newSession.id);
       await publishSession({
         id: newSession.id,
         title: newSession.title,
@@ -124,8 +130,9 @@ export default function TutorBroadcastPage() {
         category: categories.find(c => c.id === category)?.name || category,
         viewers: 0
       });
+      console.log("Session published successfully!");
 
-      // Initialize WebRTC
+      // 3. Initialize WebRTC
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
@@ -173,9 +180,21 @@ export default function TutorBroadcastPage() {
         }
       });
 
+      // 4. Update UI to LIVE only after success
+      setShowSetup(false);
+      setIsLive(true);
+
     } catch (e) {
       console.error("Go Live Error:", e);
-      alert("Failed to go live. Check console.");
+      alert(`Failed to go live: ${e.message}\nPlease check your connection.`);
+
+      // Reset button
+      const confirmBtn = document.querySelector('.go-live-hero-btn');
+      if (confirmBtn) {
+        confirmBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-zap"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> GO LIVE';
+        confirmBtn.disabled = false;
+      }
+
       setIsLive(false);
       setShowSetup(true);
     }
