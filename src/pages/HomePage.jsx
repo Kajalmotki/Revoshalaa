@@ -9,24 +9,32 @@ export default function HomePage() {
   const { user } = useAuth();
   const [activeSessions, setActiveSessions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // 1. Listen for Real-Time Live Sessions
   useEffect(() => {
     setLoading(true);
-    const unsub = onLiveSessionsChanged((sessions) => {
-      console.log("HomePage received sessions:", sessions);
-      setActiveSessions(sessions);
-      setLoading(false);
-    });
+    setError(null);
+    const unsub = onLiveSessionsChanged(
+      (sessions) => {
+        console.log("HomePage received sessions:", sessions);
+        setActiveSessions(sessions);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("HomePage Error:", err);
+        setError(err.message);
+        setLoading(false);
+      }
+    );
     return () => unsub();
   }, []);
 
   // 2. Refresh Handler
   const handleRefresh = () => {
     setLoading(true);
-    // The listener stays active, but we can simulate a 'check' or simply re-mount slightly
-    // For now, just a visual spinner timeout if data doesn't change immediately
-    setTimeout(() => setLoading(false), 800);
+    setError(null);
+    window.location.reload(); // Hard refresh to ensure clean state
   };
 
   return (
@@ -49,7 +57,17 @@ export default function HomePage() {
           <span className="live-count">{activeSessions.length} active</span>
         </div>
 
-        {activeSessions.length === 0 ? (
+        {error ? (
+          // ERROR STATE
+          <div className="empty-state">
+            <div className="pulse-circle" style={{ background: 'rgba(255,0,0,0.2)' }}>
+              <Wifi size={32} color="red" />
+            </div>
+            <h3>Connection Error</h3>
+            <p style={{ color: 'red' }}>{error}</p>
+            <p className="hint">Please check your internet or refresh.</p>
+          </div>
+        ) : activeSessions.length === 0 ? (
           // EMPTY STATE
           <div className="empty-state">
             <div className="pulse-circle">

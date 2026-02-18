@@ -60,7 +60,7 @@ export async function removeSession(sessionId) {
 }
 
 // Real-time listener for all active live sessions
-export function onLiveSessionsChanged(callback) {
+export function onLiveSessionsChanged(callback, onError) {
     const q = query(collection(db, 'live_sessions')); // Could add where('status', '==', 'active')
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -72,6 +72,7 @@ export function onLiveSessionsChanged(callback) {
         callback(sessions);
     }, (error) => {
         console.error('[Firestore] Error reading live-sessions:', error);
+        if (onError) onError(error);
         callback([]);
     });
 
