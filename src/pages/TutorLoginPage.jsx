@@ -72,7 +72,7 @@ export default function TutorLoginPage() {
         specialty: specialty,
       });
       setIsLoading(false);
-      navigate('/tutor-broadcast');
+      navigate('/tutor/dashboard');
     }, 1000);
   };
 

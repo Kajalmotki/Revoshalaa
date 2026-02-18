@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play, Sparkles, Clock, Users, Calendar } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -26,8 +26,27 @@ export default function HomePage() {
     gradient: gradientPool[i % gradientPool.length],
   }));
 
-  // Use first live session or null
-  const featuredLive = liveSessions.length > 0 ? liveSessions[0] : null;
+  // Poll shared API for live sessions (works across devices)
+  const [sharedLiveSessions, setSharedLiveSessions] = useState([]);
+
+  useEffect(() => {
+    const fetchLive = async () => {
+      try {
+        const res = await fetch('/api/live-sessions');
+        const data = await res.json();
+        setSharedLiveSessions(data);
+      } catch (e) {
+        // API not available, fall back to local
+      }
+    };
+    fetchLive();
+    const interval = setInterval(fetchLive, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Prefer shared API sessions, fall back to local context
+  const allLive = sharedLiveSessions.length > 0 ? sharedLiveSessions : liveSessions;
+  const featuredLive = allLive.length > 0 ? allLive[0] : null;
 
   return (
     <div className="page home-page">

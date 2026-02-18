@@ -98,6 +98,7 @@ const categoryData = {
 export default function CategoryDetailPage() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { checkOnlineStatus } = useAuth();
   const category = categoryData[id] || categoryData.fitness;
 
   return (
@@ -128,19 +129,28 @@ export default function CategoryDetailPage() {
           <div className="section-header">
             <h2>Top Creators</h2>
           </div>
-          {category.instructors.map((inst) => (
-            <div key={inst.id} className="instructor-detail-card glass-card">
-              <div className="inst-avatar">{inst.avatar}</div>
-              <div className="inst-info">
-                <h3>{inst.name}</h3>
-                <p className="inst-specialty">{inst.specialty}</p>
-                <div className="inst-meta">
-                  <span><Star size={12} fill="#D4A853" color="#D4A853" /> {inst.rating}</span>
-                  <span><Clock size={12} /> {inst.nextLive}</span>
+          {category.instructors.map((inst) => {
+            const isOnline = checkOnlineStatus ? checkOnlineStatus(inst.name) : false;
+            return (
+              <div key={inst.id} className="instructor-detail-card glass-card">
+                <div className="inst-avatar" style={{ position: 'relative' }}>
+                  {inst.avatar}
+                  {isOnline && <div className="online-badge-dot" />}
+                </div>
+                <div className="inst-info">
+                  <div className="inst-header-row">
+                    <h3>{inst.name}</h3>
+                    {isOnline && <span className="online-tag">Online</span>}
+                  </div>
+                  <p className="inst-specialty">{inst.specialty}</p>
+                  <div className="inst-meta">
+                    <span><Star size={12} fill="#D4A853" color="#D4A853" /> {inst.rating}</span>
+                    <span><Clock size={12} /> {inst.nextLive}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </section>
 
         {/* Upcoming Sessions */}
@@ -300,6 +310,39 @@ export default function CategoryDetailPage() {
           display: flex;
           align-items: center;
           gap: 4px;
+        }
+
+        /* Online Status */
+        .online-badge-dot {
+          position: absolute;
+          bottom: 2px;
+          right: 2px;
+          width: 12px;
+          height: 12px;
+          background: #4CAF50;
+          border: 2px solid white;
+          border-radius: 50%;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .inst-header-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 2px;
+        }
+
+        .inst-header-row h3 {
+          margin-bottom: 0;
+        }
+
+        .online-tag {
+          font-size: 10px;
+          font-weight: 600;
+          color: #4CAF50;
+          background: rgba(76, 175, 80, 0.1);
+          padding: 2px 6px;
+          border-radius: 4px;
         }
       `}</style>
     </div>

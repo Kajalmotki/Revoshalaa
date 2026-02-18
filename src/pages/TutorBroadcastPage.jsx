@@ -28,6 +28,9 @@ export default function TutorBroadcastPage() {
   const [elapsed, setElapsed] = useState(0);
 
   const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const peerRef = useRef(null);
+  const pollRef = useRef(null);
 
   // Pre-fill from tutor onboarding data
   useEffect(() => {
@@ -41,6 +44,7 @@ export default function TutorBroadcastPage() {
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
@@ -55,6 +59,77 @@ export default function TutorBroadcastPage() {
       }
     };
   }, [camOn]);
+
+  // WebRTC: Create offer and poll for answer when live
+  useEffect(() => {
+    if (!isLive || !sessionId || !streamRef.current) return;
+
+    async function setupWebRTC() {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      peerRef.current = pc;
+
+      // Add camera tracks to the connection
+      streamRef.current.getTracks().forEach(track => {
+        pc.addTrack(track, streamRef.current);
+      });
+
+      // Send ICE candidates to server
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          fetch('/api/signal/tutor-candidate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, candidate: e.candidate }),
+          }).catch(() => { });
+        }
+      };
+
+      // Create and send offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      await fetch('/api/signal/offer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, offer: pc.localDescription }),
+      });
+
+      console.log('[WebRTC] Offer sent, waiting for viewer...');
+
+      // Poll for viewer answer
+      let answered = false;
+      pollRef.current = setInterval(async () => {
+        if (answered) return;
+        try {
+          const res = await fetch(`/api/signal/get/${sessionId}`);
+          const data = await res.json();
+
+          if (data.answer && !answered) {
+            answered = true;
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            console.log('[WebRTC] Answer received, connection establishing...');
+
+            // Add viewer ICE candidates
+            for (const c of data.viewerCandidates) {
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => { });
+            }
+          }
+        } catch (e) { }
+      }, 1000);
+    }
+
+    setupWebRTC();
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (peerRef.current) {
+        peerRef.current.close();
+        peerRef.current = null;
+      }
+    };
+  }, [isLive, sessionId]);
 
   // Simulate Viewer Join & Chat + Timer
   useEffect(() => {
@@ -90,19 +165,55 @@ export default function TutorBroadcastPage() {
     return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   };
 
-  const handleGoLive = () => {
+  const handleGoLive = async () => {
     if (!sessionDetails.title) return alert('Please enter a session title');
     const session = startLiveSession(sessionDetails);
     setSessionId(session.id);
     setIsLive(true);
     setElapsed(0);
+
+    // Notify shared server so other devices can see this session
+    try {
+      await fetch('/api/go-live', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: session.id,
+          title: sessionDetails.title,
+          tutorName: user?.name || 'Creator',
+          tutorId: user?.id,
+          category: categories?.find(c => c.id === sessionDetails.category)?.name || sessionDetails.category,
+        }),
+      });
+    } catch (e) {
+      console.error('Failed to register live session:', e);
+    }
   };
 
-  const handleEndLive = () => {
+  const handleEndLive = async () => {
     if (confirm('Are you sure you want to end the live session?')) {
+      // Cleanup WebRTC
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (peerRef.current) {
+        peerRef.current.close();
+        peerRef.current = null;
+      }
+
       endLiveSession(sessionId);
       setIsLive(false);
-      navigate('/home');
+
+      // Notify shared server
+      try {
+        await fetch('/api/end-live', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: sessionId }),
+        });
+      } catch (e) {
+        console.error('Failed to end live session on server:', e);
+      }
+
+      navigate('/tutor/dashboard');
     }
   };
 

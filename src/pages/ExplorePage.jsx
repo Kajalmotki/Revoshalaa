@@ -90,7 +90,7 @@ export default function ExplorePage() {
             <div
               key={cat.id}
               className="explore-card glass-card"
-              onClick={() => navigate(`/category/${cat.type.toLowerCase().replace(/[^a-z]/g, '-')}`)}
+              onClick={() => navigate(`/category/${cat.type ? cat.type.toLowerCase().replace(/[^a-z]/g, '-') : 'fitness'}`)}
             >
               <div className="explore-card-emoji" style={{ background: `${cat.color}20` }}>
                 <span>{cat.emoji}</span>

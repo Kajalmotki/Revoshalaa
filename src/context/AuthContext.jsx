@@ -1,6 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-const AuthContext = createContext();
+const AuthContext = createContext({
+    user: null,
+    onlineUsers: {},
+    checkOnlineStatus: () => false,
+    login: () => { },
+    logout: () => { },
+    addCategory: () => { },
+    startLiveSession: () => { },
+    endLiveSession: () => { },
+    categories: [],
+    tutors: [],
+    liveSessions: []
+});
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -19,6 +31,65 @@ export const AuthProvider = ({ children }) => {
     const [tutors, setTutors] = useState([]);
     const [liveSessions, setLiveSessions] = useState([]);
     const [categories, setCategories] = useState([]);
+    // Online Status System
+    const [onlineUsers, setOnlineUsers] = useState({});
+
+    // Check if a specific user (by name/id) is online
+    const checkOnlineStatus = (identifier) => {
+        if (!identifier) return false;
+        // Check by ID or Name (case insensitive)
+        const id = identifier.toString().toLowerCase();
+        return !!onlineUsers[id];
+    };
+
+    // Helper to set online status
+    const setOnline = (userId, userName) => {
+        if (!userId) return;
+        setOnlineUsers(prev => {
+            const update = { ...prev, [userId.toString()]: true };
+            if (userName) update[userName.toLowerCase()] = true;
+            localStorage.setItem('revoshalaa_online_users', JSON.stringify(update));
+            return update;
+        });
+    };
+
+    const setOffline = (userId, userName) => {
+        setOnlineUsers(prev => {
+            const next = { ...prev };
+            if (userId) delete next[userId.toString()];
+            if (userName) delete next[userName.toLowerCase()];
+            localStorage.setItem('revoshalaa_online_users', JSON.stringify(next));
+            return next;
+        });
+    };
+
+    // Sync online status across tabs
+    useEffect(() => {
+        const handleStorageChange = (e) => {
+            if (e.key === 'revoshalaa_online_users') {
+                try {
+                    const newValue = JSON.parse(e.newValue);
+                    if (newValue) setOnlineUsers(newValue);
+                } catch (err) {
+                    // ignore parse error
+                }
+            }
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+
+        // Initial load
+        const storedOnline = localStorage.getItem('revoshalaa_online_users');
+        if (storedOnline) {
+            try {
+                setOnlineUsers(JSON.parse(storedOnline));
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        return () => window.removeEventListener('storage', handleStorageChange);
+    }, []);
 
     // Load data from localStorage on mount
     useEffect(() => {
@@ -27,13 +98,35 @@ export const AuthProvider = ({ children }) => {
         const storedSessions = localStorage.getItem('revoshalaa_sessions');
         const storedCategories = localStorage.getItem('revoshalaa_categories');
 
-        if (storedUser) setUser(JSON.parse(storedUser));
-        if (storedTutors) setTutors(JSON.parse(storedTutors));
-        if (storedSessions) setLiveSessions(JSON.parse(storedSessions));
+        if (storedUser) {
+            try {
+                const parsedUser = JSON.parse(storedUser);
+                setUser(parsedUser);
+                // Auto-set online on restore
+                if (parsedUser && parsedUser.id) {
+                    setOnline(parsedUser.id, parsedUser.name);
+                }
+            } catch (e) {
+                console.error("Failed to parse user", e);
+                localStorage.removeItem('revoshalaa_user');
+            }
+        }
+        if (storedTutors) {
+            try { setTutors(JSON.parse(storedTutors)); } catch (e) { localStorage.removeItem('revoshalaa_tutors'); }
+        }
+        if (storedSessions) {
+            try { setLiveSessions(JSON.parse(storedSessions)); } catch (e) { localStorage.removeItem('revoshalaa_sessions'); }
+        }
 
         // Seed categories on first use, then always use localStorage
         if (storedCategories) {
-            setCategories(JSON.parse(storedCategories));
+            try {
+                setCategories(JSON.parse(storedCategories));
+            } catch (e) {
+                localStorage.removeItem('revoshalaa_categories');
+                setCategories(DEFAULT_CATEGORIES);
+                localStorage.setItem('revoshalaa_categories', JSON.stringify(DEFAULT_CATEGORIES));
+            }
         } else {
             setCategories(DEFAULT_CATEGORIES);
             localStorage.setItem('revoshalaa_categories', JSON.stringify(DEFAULT_CATEGORIES));
@@ -71,6 +164,7 @@ export const AuthProvider = ({ children }) => {
         };
 
         setUser(newUser);
+        setOnline(newUser.id, newUser.name);
         localStorage.setItem('revoshalaa_user', JSON.stringify(newUser));
 
         // Register tutor in the tutors list
@@ -92,6 +186,7 @@ export const AuthProvider = ({ children }) => {
 
     // Logout
     const logout = () => {
+        if (user) setOffline(user.id, user.name);
         setUser(null);
         localStorage.removeItem('revoshalaa_user');
     };
@@ -130,6 +225,8 @@ export const AuthProvider = ({ children }) => {
             tutors,
             liveSessions,
             categories,
+            onlineUsers,
+            checkOnlineStatus,
             login,
             logout,
             addCategory,
