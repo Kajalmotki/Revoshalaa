@@ -83,7 +83,6 @@ export default function SplashScreen() {
           flex-direction: column;
           align-items: center;
           gap: 16px;
-          border: 2px solid #D4AF37; /* Golden Border */
           padding: 20px;
           border-radius: 50%;
           background: rgba(255, 255, 255, 0.4);

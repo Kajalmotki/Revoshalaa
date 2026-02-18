@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Users, Heart, Flame, Send, Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowLeft, Users, Heart, Flame, Send, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
 import {
   sendAnswer, sendCandidate, onSignalingChanged, onNewCandidates
 } from '../utils/liveSignaling';
@@ -35,6 +35,7 @@ export default function LiveSessionPage() {
   const [elapsed, setElapsed] = useState(0);
   const [chatVisible, setChatVisible] = useState(true);
   const [connected, setConnected] = useState(false);
+  const [showRetry, setShowRetry] = useState(false);
   const chatRef = useRef(null);
   const videoRef = useRef(null);
   const peerRef = useRef(null);
@@ -46,61 +47,91 @@ export default function LiveSessionPage() {
 
     let unsubSignaling;
     let unsubCandidates;
+    let connectionTimeout;
 
-    // Listen for the tutor's offer in real-time
-    unsubSignaling = onSignalingChanged(sessionId, async (data) => {
-      if (data.offer && !peerRef.current) {
-        const pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-          ]
-        });
-        peerRef.current = pc;
+    const setupConnection = async () => {
+      setConnected(false);
 
-        // When we receive the tutor's video track
-        pc.ontrack = (event) => {
-          console.log('[WebRTC] Received tutor stream!');
-          if (videoRef.current) {
-            videoRef.current.srcObject = event.streams[0];
-            setConnected(true);
-          }
-        };
-
-        // Send our ICE candidates to Firebase
-        pc.onicecandidate = (e) => {
-          if (e.candidate) {
-            sendCandidate(sessionId, 'viewer', e.candidate).catch(() => { });
-          }
-        };
-
-        // Set the tutor's offer
-        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-
-        // Add existing tutor ICE candidates
-        for (const c of data.tutorCandidates) {
-          await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => { });
+      // Connection timeout watchdog (15s)
+      connectionTimeout = setTimeout(() => {
+        if (!connected) {
+          console.warn('Connection timed out');
+          // We could set an error state here or show a retry button
+          // For now, let's just let the UI show "Connecting..." but maybe add a retry button
         }
+      }, 15000);
 
-        // Listen for new tutor ICE candidates
-        unsubCandidates = onNewCandidates(sessionId, 'tutor', async (candidate) => {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          } catch (e) { }
+      try {
+        // Listen for the tutor's offer
+        unsubSignaling = onSignalingChanged(sessionId, async (data) => {
+          if (data.offer && !peerRef.current) {
+            console.log('[WebRTC] Received offer, creating answer...');
+            const pc = new RTCPeerConnection({
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+              ]
+            });
+            peerRef.current = pc;
+
+            pc.ontrack = (event) => {
+              console.log('[WebRTC] Received remote track');
+              if (videoRef.current) {
+                videoRef.current.srcObject = event.streams[0];
+                setConnected(true);
+                clearTimeout(connectionTimeout);
+              }
+            };
+
+            pc.onicecandidate = (e) => {
+              if (e.candidate) {
+                sendCandidate(sessionId, 'viewer', e.candidate).catch(err => console.warn('ICE Candidate send failed', err));
+              }
+            };
+
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+
+              // Best effort send answer
+              sendAnswer(sessionId, pc.localDescription).catch(err => console.warn('Send answer failed', err));
+
+              // Process existing candidates
+              if (data.tutorCandidates) {
+                for (const c of data.tutorCandidates) {
+                  pc.addIceCandidate(new RTCIceCandidate(c)).catch(e => console.warn('Add ICE failed', e));
+                }
+              }
+            } catch (err) {
+              console.error('WebRTC Error:', err);
+            }
+
+            // Listen for new candidates
+            unsubCandidates = onNewCandidates(sessionId, 'tutor', async (candidate) => {
+              if (peerRef.current) {
+                peerRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn('Add new ICE failed', e));
+              }
+            });
+          } else if (!data) {
+            // Session closed by tutor
+            console.log('Session ended by tutor');
+            alert('The live session has ended.');
+            navigate('/home');
+          }
         });
-
-        // Create and send our answer
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await sendAnswer(sessionId, pc.localDescription);
-
-        console.log('[WebRTC] Answer sent via Firebase');
+      } catch (err) {
+        console.error('Signaling setup error:', err);
       }
-    });
+    };
+
+    setupConnection();
 
     return () => {
       if (unsubSignaling) unsubSignaling();
       if (unsubCandidates) unsubCandidates();
+      if (connectionTimeout) clearTimeout(connectionTimeout);
       if (peerRef.current) {
         peerRef.current.close();
         peerRef.current = null;
@@ -195,10 +226,21 @@ export default function LiveSessionPage() {
             <div className="stream-center">
               <div className="stream-avatar">🧘‍♀️</div>
               <h2>{tutorName}</h2>
-              <p>Connecting to stream...</p>
-              <div className="connecting-dots">
-                <span /><span /><span />
-              </div>
+              {showRetry ? (
+                <div className="retry-container">
+                  <p style={{ color: '#ff6b6b' }}>Connection timed out</p>
+                  <button className="retry-btn" onClick={() => window.location.reload()}>
+                    <RefreshCw size={18} /> Retry Connection
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p>Connecting to stream...</p>
+                  <div className="connecting-dots">
+                    <span /><span /><span />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -398,6 +440,31 @@ export default function LiveSessionPage() {
           gap: 6px;
           justify-content: center;
           margin-top: 8px;
+        }
+
+        .retry-container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
+          animation: fadeIn 0.3s ease;
+        }
+
+        .retry-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 20px;
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(255,255,255,0.2);
+          border-radius: 20px;
+          color: white;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .retry-btn:hover {
+          background: rgba(255,255,255,0.2);
         }
 
         .connecting-dots span {

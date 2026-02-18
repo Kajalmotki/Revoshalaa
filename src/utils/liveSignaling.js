@@ -23,10 +23,12 @@ export async function publishSession(session) {
         const sessionRef = doc(db, 'live_sessions', session.id);
         console.log('[Firestore] Publishing session:', session.id, session);
 
+        const now = new Date().toISOString();
         await setDoc(sessionRef, {
             ...session,
             status: 'active',
-            startedAt: new Date().toISOString(),
+            startedAt: now,
+            lastPing: now, // Heartbeat initialization
             viewers: 0
         });
 
@@ -46,29 +48,81 @@ export async function publishSession(session) {
     }
 }
 
+// Tutor sends a heartbeat to keep session alive
+export async function sendHeartbeat(sessionId) {
+    try {
+        const sessionRef = doc(db, 'live_sessions', sessionId);
+        await updateDoc(sessionRef, {
+            lastPing: new Date().toISOString()
+        });
+    } catch (err) {
+        console.warn('[Firestore] Heartbeat failed:', err);
+    }
+}
+
 // Tutor removes a live session
 export async function removeSession(sessionId) {
     try {
-        // We can either delete it or mark it as ended. 
-        // Deleting for cleanup.
         await deleteDoc(doc(db, 'live_sessions', sessionId));
-        // Subcollections (signaling) technically remain in Firestore unless manually deleted, 
-        // but they won't be accessible via the main session doc.
     } catch (err) {
         console.error('[Firestore] Failed to remove session:', err);
     }
 }
 
-// Real-time listener for all active live sessions
+// Real-time listener for all active live sessions (with cleanup for stale sessions)
 export function onLiveSessionsChanged(callback, onError) {
-    const q = query(collection(db, 'live_sessions')); // Could add where('status', '==', 'active')
+    const q = query(collection(db, 'live_sessions'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
         const sessions = [];
+        const now = new Date();
+
         snapshot.forEach((doc) => {
-            sessions.push({ id: doc.id, ...doc.data() });
+            const data = doc.data();
+            let isValid = false;
+            let reason = 'unknown';
+
+            if (data.lastPing) {
+                const lastPing = new Date(data.lastPing);
+                const diff = (now - lastPing) / 1000;
+                console.log(`[Session ${doc.id}] Ping diff: ${diff}s`);
+
+                // Diff < 180 means active within last 3 mins
+                // Diff < 0 means future time (clock skew), also valid
+                if (diff < 180) {
+                    isValid = true;
+                    reason = 'valid heartbeat';
+                } else {
+                    reason = `stale heartbeat (${diff.toFixed(1)}s)`;
+                }
+            } else {
+                // Legacy
+                if (data.startedAt) {
+                    const started = new Date(data.startedAt);
+                    const diff = (now - started) / 1000;
+                    console.log(`[Session ${doc.id}] Legacy diff: ${diff}s`);
+                    if (diff < 300) {
+                        isValid = true;
+                        reason = 'valid legacy';
+                    } else {
+                        reason = 'stale legacy';
+                    }
+                } else {
+                    reason = 'no timestamps';
+                }
+            }
+
+            if (isValid) {
+                sessions.push({ id: doc.id, ...data });
+            } else {
+                console.warn(`[Session ${doc.id}] Filtered out: ${reason}`, data);
+            }
         });
-        console.log('[Firestore] Live sessions update:', sessions.length);
+
+        // Sort by newest first
+        sessions.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+
+        console.log('[Firestore] Valid sessions after filter:', sessions.length);
         callback(sessions);
     }, (error) => {
         console.error('[Firestore] Error reading live-sessions:', error);
