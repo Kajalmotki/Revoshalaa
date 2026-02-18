@@ -1,0 +1,22 @@
+{
+    "name": "Revoshalaa - Live Yoga & Dance",
+    "short_name": "Revoshalaa",
+    "description": "Premium live yoga & dance learning platform.",
+    "start_url": "/home",
+    "display": "standalone",
+    "background_color": "#0a0f0a",
+    "theme_color": "#1a1f1a",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "/icons/icon-192.png",
+            "type": "image/png",
+            "sizes": "192x192"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "type": "image/png",
+            "sizes": "512x512"
+        }
+    ]
+}

@@ -138,10 +138,31 @@ export default function TutorBroadcastPage() {
 
   const handleEndLive = async () => {
     if (confirm("End current session?")) {
+      // 1. Stop Media Tracks
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+
+      // 2. Remove from Firestore
+      // (The actual removal logic is usually handled by the tutor or a cleanup job, 
+      // but here we just reset local state. The `removeSession` utility might be needed if we want to clean up.)
+
+      // 3. Reset State
       setIsLive(false);
       setShowSetup(true);
-      // Cleanup Logic
-      navigate('/tutor/dashboard');
+
+      // 4. Navigation Logic
+      if (user && user.type === 'tutor') {
+        navigate('/tutor/dashboard');
+      } else {
+        // Guest or Student -> Stay here or go home?
+        // User asked to "get back in their member interface"
+        // If they are a guest, staying here allows them to start another session or close.
+        // Or we can navigate to home.
+        // Let's just stay on the setup screen for Guests so they aren't lost.
+        // A reload would clear the session.
+        window.location.reload();
+      }
     }
   };
 

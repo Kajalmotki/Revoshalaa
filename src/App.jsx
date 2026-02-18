@@ -17,6 +17,7 @@ import TutorDashboardPage from './pages/TutorDashboardPage';
 import TutorProfilePage from './pages/TutorProfilePage';
 import BottomNav from './components/BottomNav';
 import TutorBottomNav from './components/TutorBottomNav';
+import InstallPrompt from './components/InstallPrompt';
 import { AuthProvider } from './context/AuthContext';
 
 function AppContent() {
@@ -59,6 +60,8 @@ function AppContent() {
             {/* Show appropriate nav based on route */}
             {!hideAllNav && isTutorRoute && <TutorBottomNav />}
             {!hideAllNav && !isTutorRoute && <BottomNav />}
+
+            <InstallPrompt />
         </>
     );
 }
