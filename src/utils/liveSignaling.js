@@ -11,9 +11,14 @@ import {
 // Tutor publishes a live session
 export function publishSession(session) {
     const sessionRef = ref(database, `live-sessions/${session.id}`);
+    console.log('[Firebase] Publishing session:', session.id, session);
     return set(sessionRef, {
         ...session,
         startedAt: new Date().toISOString(),
+    }).then(() => {
+        console.log('[Firebase] Session published successfully!');
+    }).catch((err) => {
+        console.error('[Firebase] Failed to publish session:', err.message);
     });
 }
 
@@ -28,11 +33,19 @@ export function removeSession(sessionId) {
 // Real-time listener for all active live sessions
 export function onLiveSessionsChanged(callback) {
     const sessionsRef = ref(database, 'live-sessions');
-    const handler = onValue(sessionsRef, (snapshot) => {
-        const data = snapshot.val();
-        const sessions = data ? Object.values(data) : [];
-        callback(sessions);
-    });
+    const handler = onValue(
+        sessionsRef,
+        (snapshot) => {
+            const data = snapshot.val();
+            console.log('[Firebase] live-sessions data:', data);
+            const sessions = data ? Object.values(data) : [];
+            callback(sessions);
+        },
+        (error) => {
+            console.error('[Firebase] Permission error reading live-sessions:', error.message);
+            callback([]);
+        }
+    );
     // Return unsubscribe function
     return () => off(sessionsRef, 'value', handler);
 }
